@@ -1,0 +1,113 @@
+import subprocess
+import threading
+import time
+import sys
+import select
+
+class PJSIPController:
+    def __init__(self):
+        self.process = None
+        self._stop_event = threading.Event()
+
+    def start(self):
+        """Start the PJSIP process"""
+        try:
+            self.process = subprocess.Popen(
+                ["./pjsua-x86_64-pc-linux-gnu", "--local-port=5080"],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                bufsize=1,  # Line buffering
+                universal_newlines=True,
+                text=True
+            )
+            print("PJSIP process started (PID: {})".format(self.process.pid))
+            
+            # Start output monitoring thread
+            threading.Thread(target=self._monitor_output, daemon=True).start()
+            
+            # Wait for initialization
+            if not self._wait_for_ready():
+                raise RuntimeError("PJSIP failed to initialize")
+                
+            return True
+            
+        except Exception as e:
+            print("Failed to start PJSIP:", str(e))
+            return False
+    def _wait_for_ready(self, timeout=10):
+        """Wait for PJSIP to be ready"""
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            if self.process.poll() is not None:
+                return False
+            line = self.process.stdout.readline()
+            if line:
+                print("PJSIP:", line.strip())
+                if "Ready:" in line:
+                    return True
+        return False
+
+    def _monitor_output(self):
+        """Monitor process output in a separate thread"""
+        while not self._stop_event.is_set():
+            rlist, _, _ = select.select([self.process.stdout], [], [], 0.1)
+            if self.process.stdout in rlist:
+                line = self.process.stdout.readline()
+                if not line:
+                    if self.process.poll() is not None:
+                        break
+                    continue
+                print("PJSIP:", line.strip())
+
+    def send_command(self, command, delay=0.3):
+        """Send a command to the PJSIP process"""
+        if self.process.poll() is None:
+            try:
+                self.process.stdin.write(command + "\n")
+                self.process.stdin.flush()
+                time.sleep(delay)  # Important delay between commands
+                return True
+            except Exception as e:
+                print("Failed to send command:", str(e))
+        return False
+
+    def stop(self):
+        """Stop the PJSIP process gracefully"""
+        self._stop_event.set()
+        if self.process.poll() is None:
+            self.send_command("q")  # Send quit command
+            try:
+                self.process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.process.terminate()
+        return True
+
+def main():
+    pjsip = PJSIPController()
+    
+    if not pjsip.start():
+        sys.exit(1)
+        
+    try:
+        # Example usage
+        if pjsip.send_command("a"):  # Add account
+            pjsip.send_command("sip:user@provider.com")
+            pjsip.send_command("sip:provider.com")
+            pjsip.send_command("username")
+            pjsip.send_command("password")
+            time.sleep(2)  # Wait for registration
+            
+            pjsip.send_command("m sip:echo@iptel.org")  # Make test call
+            
+        # Keep the program running
+        while pjsip.process.poll() is None:
+            time.sleep(1)
+            
+    except KeyboardInterrupt:
+        print("\nShutting down...")
+    finally:
+        pjsip.stop()
+
+if __name__ == "__main__":
+    main()
