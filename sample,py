@@ -108,25 +108,3 @@ def main():
         print("\nShutting down...")
     finally:
         pjsip.stop()
-
-if __name__ == "__main__":
-    main()
-
-from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton
-
-class DialerWindow(QMainWindow):
-    def _init_(self):
-        super()._init_()
-        self.call_button = QPushButton("Call 1000", self)
-        self.call_button.clicked.connect(self.make_call)
-        self.setWindowTitle("PJSIP Dialer")
-        self.setGeometry(100, 100, 300, 200)
-
-    def make_call(self):
-        # Call the PJSUA2 function here to dial
-        print("Dialing 1000...")
-
-app = QApplication([])
-window = DialerWindow()
-window.show()
-app.exec_()
